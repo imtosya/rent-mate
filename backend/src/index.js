@@ -8,6 +8,7 @@ const session    = require('express-session');
 const MySQLStore = require('express-mysql-session')(session);
 const path       = require('path');
 const fs         = require('fs');
+const { getAIResponse } = require('./ai');
 
 const app = express();
 
@@ -93,6 +94,23 @@ app.use('/api/messages',      require('./routes/messages'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/favorites',     require('./routes/favorites'));
 app.use('/api/profile',       require('./routes/profile'));
+
+// ── AI Assistant ─────────────────────────────────────────────────────────────
+app.post('/api/ai/respond', async (req, res) => {
+    const { message } = req.body;
+
+    try {
+        const result = await getAIResponse(message);
+
+        res.json(result);
+    } catch (e) {
+        console.error('AI Error:', e);
+
+        res.status(500).json({
+            error: 'AI временно недоступен'
+        });
+    }
+});
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
