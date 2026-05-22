@@ -3,16 +3,29 @@ const bcrypt = require('bcryptjs');
 const db     = require('../config/db');
 const auth   = require('../middleware/auth');
 
-
-function safeUser(user) {
-    const { password_hash, ...safe } = user;
-    return safe;
+// Преобразует запись из БД в формат, который ожидает фронтенд
+function formatUser(user) {
+    return {
+        id:         String(user.id),
+        name:       user.name,
+        email:      user.email,
+        phone:      user.phone  || '',
+        avatar:     user.avatar_url || '',
+        bio:        user.bio    || '',
+        is_landlord: !!user.is_landlord,
+        verified:   true,   // считаем всех зарегистрированных верифицированными
+        joinDate:   user.created_at
+            ? new Date(user.created_at).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+            : '',
+        rating:     0,      // рейтинг считаем по отзывам отдельно
+        created_at: user.created_at,
+    };
 }
 
-
+// POST /api/auth/register
 router.post('/register', async (req, res) => {
     try {
-        const { name, email, password, is_landlord = false } = req.body;
+        const { name, email, password, phone = '', is_landlord = false } = req.body;
 
         if (!name || !email || !password)
             return res.status(400).json({ error: 'Заполни имя, email и пароль' });
@@ -33,19 +46,18 @@ router.post('/register', async (req, res) => {
         const password_hash = await bcrypt.hash(password, 10);
 
         const [result] = await db.query(
-            'INSERT INTO users (name, email, password_hash, is_landlord) VALUES (?, ?, ?, ?)',
-            [name.trim(), email.toLowerCase().trim(), password_hash, !!is_landlord]
+            'INSERT INTO users (name, email, password_hash, phone, is_landlord) VALUES (?, ?, ?, ?, ?)',
+            [name.trim(), email.toLowerCase().trim(), password_hash, phone.trim(), !!is_landlord]
         );
 
         const [[user]] = await db.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
 
-
-        req.session.userId = user.id;
+        req.session.userId    = user.id;
         req.session.userEmail = user.email;
 
         res.status(201).json({
             message: 'Аккаунт создан!',
-            user: safeUser(user)
+            user: formatUser(user)
         });
     } catch (err) {
         console.error('register error:', err);
@@ -53,7 +65,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
-
+// POST /api/auth/login
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -72,13 +84,12 @@ router.post('/login', async (req, res) => {
         if (!ok)
             return res.status(401).json({ error: 'Неверный пароль' });
 
-
         req.session.userId    = user.id;
         req.session.userEmail = user.email;
 
         res.json({
             message: 'Вход выполнен!',
-            user: safeUser(user)
+            user: formatUser(user)
         });
     } catch (err) {
         console.error('login error:', err);
@@ -86,10 +97,9 @@ router.post('/login', async (req, res) => {
     }
 });
 
-
+// POST /api/auth/logout
 router.post('/logout', (req, res) => {
     req.session.destroy(err => {
-        // Удалить cookie у клиента
         res.clearCookie('rentmate.sid');
         if (err) {
             console.error('logout error:', err);
@@ -99,7 +109,7 @@ router.post('/logout', (req, res) => {
     });
 });
 
-
+// GET /api/auth/me  — текущий пользователь по cookie
 router.get('/me', auth, async (req, res) => {
     try {
         const [[user]] = await db.query(
@@ -108,30 +118,30 @@ router.get('/me', auth, async (req, res) => {
         if (!user)
             return res.status(404).json({ error: 'Пользователь не найден' });
 
-        res.json({ user: safeUser(user) });
+        res.json({ user: formatUser(user) });
     } catch (err) {
         console.error('me error:', err);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
 
-
+// PUT /api/auth/profile  — обновление профиля текущего пользователя
 router.put('/profile', auth, async (req, res) => {
     try {
         const { name, bio, phone, avatar_url } = req.body;
 
         await db.query(
             `UPDATE users SET
-        name       = COALESCE(?, name),
-        bio        = COALESCE(?, bio),
-        phone      = COALESCE(?, phone),
-        avatar_url = COALESCE(?, avatar_url)
-       WHERE id = ?`,
+                              name       = COALESCE(?, name),
+                              bio        = COALESCE(?, bio),
+                              phone      = COALESCE(?, phone),
+                              avatar_url = COALESCE(?, avatar_url)
+             WHERE id = ?`,
             [name || null, bio || null, phone || null, avatar_url || null, req.session.userId]
         );
 
         const [[user]] = await db.query('SELECT * FROM users WHERE id = ?', [req.session.userId]);
-        res.json({ message: 'Профиль обновлён', user: safeUser(user) });
+        res.json({ message: 'Профиль обновлён', user: formatUser(user) });
     } catch (err) {
         console.error('profile update error:', err);
         res.status(500).json({ error: 'Ошибка сервера' });
@@ -139,3 +149,4 @@ router.put('/profile', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.formatUser = formatUser;

@@ -13,14 +13,13 @@ const pool = mysql.createPool({
     charset: 'utf8mb4',
 });
 
-
 pool.getConnection()
     .then(conn => {
-        console.log('✅ MySQL подключён:', process.env.DB_NAME);
+        console.log(' MySQL подключён:', process.env.DB_NAME || 'rentmate');
         conn.release();
     })
     .catch(err => {
-        console.error('❌ MySQL ошибка подключения:', err.message);
+        console.error(' MySQL ошибка подключения:', err.message);
         console.error('Проверь .env файл: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME');
         process.exit(1);
     });
