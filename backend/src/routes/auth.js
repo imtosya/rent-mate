@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const db     = require('../config/db');
 const auth   = require('../middleware/auth');
 
-// Преобразует запись из БД в формат, который ожидает фронтенд
 function formatUser(user) {
     return {
         id:         String(user.id),
@@ -13,23 +12,21 @@ function formatUser(user) {
         avatar:     user.avatar_url || '',
         bio:        user.bio    || '',
         is_landlord: !!user.is_landlord,
-        verified:   true,   // считаем всех зарегистрированных верифицированными
+        verified:   true,
         joinDate:   user.created_at
             ? new Date(user.created_at).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
             : '',
-        rating:     0,      // рейтинг считаем по отзывам отдельно
+        rating: 0,
         created_at: user.created_at,
     };
 }
 
-// POST /api/auth/register
 router.post('/register', async (req, res) => {
     try {
         const { name, email, password, phone = '', is_landlord = false } = req.body;
 
         if (!name || !email || !password)
             return res.status(400).json({ error: 'Заполни имя, email и пароль' });
-
         if (password.length < 6)
             return res.status(400).json({ error: 'Пароль минимум 6 символов' });
 
@@ -55,17 +52,13 @@ router.post('/register', async (req, res) => {
         req.session.userId    = user.id;
         req.session.userEmail = user.email;
 
-        res.status(201).json({
-            message: 'Аккаунт создан!',
-            user: formatUser(user)
-        });
+        res.status(201).json({ message: 'Аккаунт создан!', user: formatUser(user) });
     } catch (err) {
         console.error('register error:', err);
         res.status(500).json({ error: 'Ошибка сервера при регистрации' });
     }
 });
 
-// POST /api/auth/login
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -76,7 +69,6 @@ router.post('/login', async (req, res) => {
         const [[user]] = await db.query(
             'SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]
         );
-
         if (!user)
             return res.status(401).json({ error: 'Пользователь не найден' });
 
@@ -87,17 +79,13 @@ router.post('/login', async (req, res) => {
         req.session.userId    = user.id;
         req.session.userEmail = user.email;
 
-        res.json({
-            message: 'Вход выполнен!',
-            user: formatUser(user)
-        });
+        res.json({ message: 'Вход выполнен!', user: formatUser(user) });
     } catch (err) {
         console.error('login error:', err);
         res.status(500).json({ error: 'Ошибка сервера при входе' });
     }
 });
 
-// POST /api/auth/logout
 router.post('/logout', (req, res) => {
     req.session.destroy(err => {
         res.clearCookie('rentmate.sid');
@@ -109,15 +97,11 @@ router.post('/logout', (req, res) => {
     });
 });
 
-// GET /api/auth/me  — текущий пользователь по cookie
 router.get('/me', auth, async (req, res) => {
     try {
-        const [[user]] = await db.query(
-            'SELECT * FROM users WHERE id = ?', [req.session.userId]
-        );
+        const [[user]] = await db.query('SELECT * FROM users WHERE id = ?', [req.session.userId]);
         if (!user)
             return res.status(404).json({ error: 'Пользователь не найден' });
-
         res.json({ user: formatUser(user) });
     } catch (err) {
         console.error('me error:', err);
@@ -125,7 +109,6 @@ router.get('/me', auth, async (req, res) => {
     }
 });
 
-// PUT /api/auth/profile  — обновление профиля текущего пользователя
 router.put('/profile', auth, async (req, res) => {
     try {
         const { name, bio, phone, avatar_url } = req.body;

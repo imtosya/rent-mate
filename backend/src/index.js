@@ -5,7 +5,7 @@ const cors       = require('cors');
 const helmet     = require('helmet');
 const rateLimit  = require('express-rate-limit');
 const session    = require('express-session');
-const MySQLStore = require('connect-mysql-session')(session);
+const MySQLStore = require('express-mysql-session')(session);
 const path       = require('path');
 const fs         = require('fs');
 
