@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
 import { PropertyCard } from './components/PropertyCard';
@@ -13,8 +13,96 @@ import { NotificationsView } from './components/NotificationsView';
 import { LoginRegisterModal } from './components/LoginRegisterModal';
 import { Property, Filters, ChatMessage, Conversation, Notification } from './types';
 import { Plus } from 'lucide-react';
+import {
+  authApi, listingsApi, favoritesApi, messagesApi, notificationsApi,
+  ApiListing, ApiConversation, ApiChatMessage, ApiNotification, ApiUser
+} from '../api/api';
 
-const CURRENT_USER_ID = 'current-user';
+function apiListingToProperty(l: ApiListing): Property {
+  return {
+    id:              l.id,
+    title:           l.title,
+    description:     l.description,
+    price:           l.price,
+    location:        l.location,
+    image:           l.image,
+    rating:          l.rating,
+    rooms:           l.rooms,
+    roommates:       l.roommates,
+    type:            l.type as Property['type'],
+    typeRu:          l.typeRu,
+    petFriendly:     l.petFriendly,
+    genderPreference: l.genderPreference as Property['genderPreference'],
+    amenities:       l.amenities,
+    gallery:         l.gallery,
+    reviews:         (l.reviews || []).map(r => ({
+      id:      r.id,
+      rating:  r.rating,
+      comment: r.comment,
+      date:    r.date,
+      user:    r.user,
+    })),
+    owner: {
+      id:       l.owner.id,
+      name:     l.owner.name,
+      avatar:   l.owner.avatar,
+      rating:   l.owner.rating,
+      verified: l.owner.verified,
+      bio:      l.owner.bio,
+    },
+    ownerId: l.ownerId,
+  };
+}
+
+function apiConversationToConversation(c: ApiConversation): Conversation {
+  return {
+    id:           c.id,
+    participants: c.participants,
+    propertyId:   c.propertyId,
+    unreadCount:  c.unreadCount,
+    lastMessage:  c.lastMessage ? apiMessageToChatMessage(c.lastMessage) : undefined,
+  };
+}
+
+function apiMessageToChatMessage(m: ApiChatMessage): ChatMessage {
+  return {
+    id:             m.id,
+    conversationId: m.conversationId,
+    senderId:       m.senderId,
+    receiverId:     m.receiverId,
+    text:           m.text,
+    timestamp:      typeof m.timestamp === 'string' ? m.timestamp : new Date(m.timestamp).toISOString(),
+    read:           m.read,
+    propertyId:     m.propertyId,
+  };
+}
+
+function apiNotificationToNotification(n: ApiNotification): Notification {
+  return {
+    id:         n.id,
+    title:      n.title,
+    message:    n.message,
+    timestamp:  n.timestamp,
+    read:       n.read,
+    type:       n.type as Notification['type'],
+    targetType: n.targetType as Notification['targetType'],
+    targetId:   n.targetId,
+    propertyId: n.propertyId,
+    userId:     n.userId,
+  };
+}
+
+function apiUserToCurrentUser(u: ApiUser) {
+  return {
+    id:       u.id,
+    name:     u.name,
+    email:    u.email,
+    phone:    u.phone,
+    avatar:   u.avatar,
+    rating:   u.rating,
+    verified: u.verified,
+  };
+}
 
 interface CurrentUser {
   id: string;
@@ -27,448 +115,129 @@ interface CurrentUser {
 }
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [isLoggedIn, setIsLoggedIn]         = useState(false);
+  const [currentUser, setCurrentUser]       = useState<CurrentUser | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [currentView, setCurrentView] = useState('home');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [currentView, setCurrentView]       = useState('home');
+  const [searchQuery, setSearchQuery]       = useState('');
   const [searchLocation, setSearchLocation] = useState('');
-  const [filters, setFilters] = useState<Filters>({
-    priceRange: [0, 100000],
-  });
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [filters, setFilters]               = useState<Filters>({ priceRange: [0, 100000] });
+  const [favoriteIds, setFavoriteIds]       = useState<Set<string>>(new Set());
+  const [isFilterOpen, setIsFilterOpen]     = useState(false);
+  const [isChatOpen, setIsChatOpen]         = useState(false);
   const [isListPropertyOpen, setIsListPropertyOpen] = useState(false);
-  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
-  const [chatProperty, setChatProperty] = useState<Property | null>(null);
-  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+  const [selectedProperty, setSelectedProperty]     = useState<Property | null>(null);
+  const [chatProperty, setChatProperty]             = useState<Property | null>(null);
+  const [editingProperty, setEditingProperty]       = useState<Property | null>(null);
 
-  // Система сообщений
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: 'conv1',
-      participants: [CURRENT_USER_ID, 'user1'],
-      propertyId: '1',
-      unreadCount: 2,
-    },
-    {
-      id: 'conv2',
-      participants: [CURRENT_USER_ID, 'user2'],
-      propertyId: '2',
-      unreadCount: 0,
-    },
-    {
-      id: 'conv3',
-      participants: [CURRENT_USER_ID, 'user3'],
-      propertyId: '3',
-      unreadCount: 1,
-    },
-  ]);
+  const [properties, setProperties]           = useState<Property[]>([]);
+  const [propertiesLoading, setPropertiesLoading] = useState(true);
+  const [propertiesTotal, setPropertiesTotal] = useState(0);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 'msg1',
-      conversationId: 'conv1',
-      senderId: 'user1',
-      receiverId: CURRENT_USER_ID,
-      text: 'Квартира еще свободна?',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      read: false,
-      propertyId: '1',
-    },
-    {
-      id: 'msg2',
-      conversationId: 'conv1',
-      senderId: 'user1',
-      receiverId: CURRENT_USER_ID,
-      text: 'Когда можем встретиться для просмотра?',
-      timestamp: new Date(Date.now() - 1.5 * 60 * 60 * 1000).toISOString(),
-      read: false,
-      propertyId: '1',
-    },
-    {
-      id: 'msg3',
-      conversationId: 'conv2',
-      senderId: CURRENT_USER_ID,
-      receiverId: 'user2',
-      text: 'Здравствуйте! Интересуюсь вашей квартирой.',
-      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-      read: true,
-      propertyId: '2',
-    },
-    {
-      id: 'msg4',
-      conversationId: 'conv2',
-      senderId: 'user2',
-      receiverId: CURRENT_USER_ID,
-      text: 'Спасибо за быстрый ответ!',
-      timestamp: new Date(Date.now() - 4.5 * 60 * 60 * 1000).toISOString(),
-      read: true,
-      propertyId: '2',
-    },
-  ]);
+  const [favorites, setFavorites]   = useState<Property[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [chatMessages, setChatMessages]   = useState<ChatMessage[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Обновляем lastMessage для диалогов
-  useMemo(() => {
-    conversations.forEach(conv => {
-      const convMessages = chatMessages.filter(m => m.conversationId === conv.id);
-      if (convMessages.length > 0) {
-        conv.lastMessage = convMessages[convMessages.length - 1];
-      }
-    });
-  }, [chatMessages, conversations]);
+  useEffect(() => {
+    authApi.me()
+        .then(({ user }) => {
+          setCurrentUser(apiUserToCurrentUser(user));
+          setIsLoggedIn(true);
+          return favoritesApi.getIds();
+        })
+        .then(({ ids }) => {
+          setFavoriteIds(new Set(ids));
+        })
+        .catch(() => {});
+  }, []);
 
-  // Система уведомлений
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: 'notif1',
-      title: 'Новое сообщение',
-      message: 'Айгуль Асанова отправила вам сообщение о "Современная студия в центре"',
-      timestamp: '5 минут назад',
-      read: false,
-      type: 'message',
-      targetType: 'chat',
-      targetId: 'conv1',
-      propertyId: '1',
-      userId: 'user1',
-    },
-    {
-      id: 'notif2',
-      title: 'Новый отзыв',
-      message: 'Бакыт Осмонов оставил 5-звездочный отзыв о вашей квартире',
-      timestamp: '2 часа назад',
-      read: false,
-      type: 'review',
-      targetType: 'property',
-      targetId: '1',
-      propertyId: '1',
-    },
-    {
-      id: 'notif3',
-      title: 'Снижение цены',
-      message: 'Цена на квартиру из вашего избранного снизилась на 3000 сом',
-      timestamp: '1 день назад',
-      read: true,
-      type: 'price_drop',
-      targetType: 'property',
-      targetId: '2',
-      propertyId: '2',
-    },
-    {
-      id: 'notif4',
-      title: 'Новое подходящее объявление',
-      message: 'Появилась новая квартира, соответствующая вашим критериям',
-      timestamp: '2 дня назад',
-      read: true,
-      type: 'new_listing',
-      targetType: 'property',
-      targetId: '6',
-      propertyId: '6',
-    },
-  ]);
+  const loadListings = useCallback(async () => {
+    setPropertiesLoading(true);
+    try {
+      const { listings, pagination } = await listingsApi.getAll({
+        search:   searchQuery || undefined,
+        city:     searchLocation || undefined,
+        minPrice: filters.priceRange?.[0] || undefined,
+        maxPrice: filters.priceRange?.[1] !== 100000 ? filters.priceRange?.[1] : undefined,
+        rooms:    filters.rooms || undefined,
+        type:     filters.type || undefined,
+        petFriendly: filters.petFriendly || undefined,
+        sort:     'newest',
+        limit:    50,
+      });
+      setProperties(listings.map(apiListingToProperty));
+      setPropertiesTotal(pagination.total);
+    } catch (err) {
+      console.error('Ошибка загрузки объявлений:', err);
+    } finally {
+      setPropertiesLoading(false);
+    }
+  }, [searchQuery, searchLocation, filters]);
 
-  const [properties, setProperties] = useState<Property[]>([
-    {
-      id: '1',
-      title: 'Современная студия в центре Бишкека',
-      description: 'Красивая студия в самом центре города. Идеально для студентов с легким доступом к университетам и общественному транспорту. Полностью меблирована с современными удобствами.',
-      price: 25000,
-      location: 'Центр, Чуй-Абдрахманова',
-      image: 'https://images.unsplash.com/photo-1680416124510-5eae1beca412?w=1080',
-      rating: 4.8,
-      rooms: 1,
-      roommates: 0,
-      type: 'studio',
-      typeRu: 'Студия',
-      petFriendly: false,
-      genderPreference: 'any',
-      amenities: ['Wi-Fi', 'Отопление', 'Кондиционер', 'Стиральная машина', 'Парковка'],
-      gallery: [
-        'https://images.unsplash.com/photo-1680416124510-5eae1beca412?w=1080',
-        'https://images.unsplash.com/photo-1682184805271-11671b7ecf4c?w=1080',
-        'https://images.unsplash.com/photo-1663811397207-418a92396ad5?w=1080',
-      ],
-      owner: {
-        id: 'owner1',
-        name: 'Гульмира Токтогулова',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400',
-        rating: 4.9,
-        verified: true,
-        bio: 'Управляющая недвижимостью с 5-летним опытом. Предоставляю качественное жилье.',
-        joinDate: 'Март 2022',
-      },
-      reviews: [
-        {
-          id: 'r1',
-          user: {
-            id: 'u1',
-            name: 'Мирлан Касымов',
-            avatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=400',
-            rating: 4.7,
-            verified: true,
-          },
-          rating: 5,
-          comment: 'Потрясающее место! Очень чисто и расположение идеальное. Владелица отзывчивая и всегда помогает.',
-          date: '15 Марта 2024',
-        },
-        {
-          id: 'r2',
-          user: {
-            id: 'u2',
-            name: 'Айжан Эсенбаева',
-            avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400',
-            rating: 4.8,
-            verified: true,
-          },
-          rating: 5,
-          comment: 'Отличная студия для студентов. Близко ко всему необходимому!',
-          date: '28 Февраля 2024',
-        },
-      ],
-      ownerId: 'owner1',
-    },
-    {
-      id: '2',
-      title: 'Уютная комната рядом с КРСУ',
-      description: 'Просторная комната в общей квартире возле Кыргызско-Российского Славянского Университета. Отлично для студентов, желающих сэкономить на аренде и жить с дружелюбными соседями.',
-      price: 12000,
-      location: 'Асанбай, район КРСУ',
-      image: 'https://images.unsplash.com/photo-1616486232086-81d47190669a?w=1080',
-      rating: 4.5,
-      rooms: 1,
-      roommates: 3,
-      type: 'room',
-      typeRu: 'Комната',
-      petFriendly: true,
-      genderPreference: 'any',
-      amenities: ['Wi-Fi', 'Общая кухня', 'Комната для учебы', 'Велопарковка'],
-      gallery: [
-        'https://images.unsplash.com/photo-1616486232086-81d47190669a?w=1080',
-        'https://images.unsplash.com/photo-1657040899601-fbcc8f6486f6?w=1080',
-      ],
-      owner: {
-        id: 'owner2',
-        name: 'Данияр Исаков',
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-        rating: 4.6,
-        verified: true,
-        bio: 'Специалист по студенческому жилью. Понимаю, что нужно студентам!',
-        joinDate: 'Январь 2023',
-      },
-      reviews: [],
-      ownerId: 'owner2',
-    },
-    {
-      id: '3',
-      title: 'Роскошная 2-комнатная с видом на горы',
-      description: 'Премиум 2-комнатная квартира с потрясающим видом на горы. Современная кухня, просторная гостиная и премиум отделка.',
-      price: 45000,
-      location: 'Джал, Skyline Heights',
-      image: 'https://images.unsplash.com/photo-1653972233597-05822baa3c4e?w=1080',
-      rating: 4.9,
-      rooms: 2,
-      roommates: 1,
-      type: 'apartment',
-      typeRu: 'Квартира',
-      petFriendly: false,
-      genderPreference: 'female',
-      amenities: ['Wi-Fi', 'Спортзал', 'Бассейн', 'Консьерж', 'Парковка', 'Балкон'],
-      gallery: [
-        'https://images.unsplash.com/photo-1653972233597-05822baa3c4e?w=1080',
-        'https://images.unsplash.com/photo-1643376452350-97eadd2c417f?w=1080',
-      ],
-      owner: {
-        id: 'owner3',
-        name: 'Анара Асанова',
-        avatar: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=400',
-        rating: 5.0,
-        verified: true,
-        bio: 'Ищу ответственную девушку для совместного проживания в этой прекрасной квартире.',
-        joinDate: 'Июнь 2023',
-      },
-      reviews: [],
-      ownerId: 'owner3',
-    },
-    {
-      id: '4',
-      title: 'Доступное студенческое жилье',
-      description: 'Бюджетная комната, идеальная для студентов. Базовые удобства с акцентом на доступность и удобство.',
-      price: 8000,
-      location: 'Южные микрорайоны, рядом с КГТУ',
-      image: 'https://images.unsplash.com/photo-1644082089290-0b8f2764e15f?w=1080',
-      rating: 4.2,
-      rooms: 1,
-      roommates: 2,
-      type: 'room',
-      typeRu: 'Комната',
-      petFriendly: false,
-      genderPreference: 'male',
-      amenities: ['Wi-Fi', 'Общая кухня', 'Стиральная машина'],
-      gallery: [
-        'https://images.unsplash.com/photo-1644082089290-0b8f2764e15f?w=1080',
-      ],
-      owner: {
-        id: 'owner4',
-        name: 'Тимур Жумабаев',
-        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-        rating: 4.3,
-        verified: true,
-        bio: 'Сдаю комнаты студентам уже более 3 лет.',
-        joinDate: 'Сентябрь 2021',
-      },
-      reviews: [],
-      ownerId: 'owner4',
-    },
-    {
-      id: '5',
-      title: 'Квартира с садом для любителей животных',
-      description: 'Уютная квартира на первом этаже с доступом к частному саду. Идеально для владельцев питомцев! Тихий район с парками неподалеку.',
-      price: 28000,
-      location: 'Ала-Тоо, зеленая зона',
-      image: 'https://images.unsplash.com/photo-1638454668466-e8dbd5462f20?w=1080',
-      rating: 4.7,
-      rooms: 2,
-      roommates: 0,
-      type: 'apartment',
-      typeRu: 'Квартира',
-      petFriendly: true,
-      genderPreference: 'any',
-      amenities: ['Wi-Fi', 'Сад', 'Парковка', 'Зона для питомцев', 'Кладовка'],
-      gallery: [
-        'https://images.unsplash.com/photo-1638454668466-e8dbd5462f20?w=1080',
-        'https://images.unsplash.com/photo-1638454795595-0a0abf68614d?w=1080',
-      ],
-      owner: {
-        id: 'owner5',
-        name: 'Лилия Зеленина',
-        avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=400',
-        rating: 4.8,
-        verified: true,
-        bio: 'Любительница животных и природы. Приветствуются все питомцы!',
-        joinDate: 'Апрель 2023',
-      },
-      reviews: [],
-      ownerId: 'owner5',
-    },
-    {
-      id: '6',
-      title: 'Общий дом с комнатой для учебы',
-      description: 'Большой дом с индивидуальными комнатами и общими пространствами. Специальная комната для учебы, идеальная для студентов. Дружеская атмосфера.',
-      price: 15000,
-      location: 'Студенческий городок, рядом с АУ',
-      image: 'https://images.unsplash.com/photo-1692455067486-d4637182a61c?w=1080',
-      rating: 4.6,
-      rooms: 1,
-      roommates: 4,
-      type: 'house',
-      typeRu: 'Дом',
-      petFriendly: false,
-      genderPreference: 'any',
-      amenities: ['Wi-Fi', 'Комната для учебы', 'Общая кухня', 'Игровая комната', 'Двор'],
-      gallery: [
-        'https://images.unsplash.com/photo-1692455067486-d4637182a61c?w=1080',
-      ],
-      owner: {
-        id: 'owner6',
-        name: 'Роберт Ли',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-        rating: 4.5,
-        verified: true,
-        bio: 'Создаю поддерживающую среду для студентов с 2020 года.',
-        joinDate: 'Август 2020',
-      },
-      reviews: [],
-      ownerId: 'owner6',
-    },
-  ]);
+  useEffect(() => {
+    loadListings();
+  }, [loadListings]);
 
-  // Подсчет непрочитанных сообщений и уведомлений
-  const unreadMessagesCount = useMemo(() => {
-    return conversations.reduce((acc, conv) => acc + conv.unreadCount, 0);
-  }, [conversations]);
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    notificationsApi.getAll()
+        .then(({ notifications: ns }) => setNotifications(ns.map(apiNotificationToNotification)))
+        .catch(console.error);
+    messagesApi.getConversations()
+        .then(({ conversations: cs }) => setConversations(cs.map(apiConversationToConversation)))
+        .catch(console.error);
+  }, [isLoggedIn]);
 
-  const unreadNotificationsCount = useMemo(() => {
-    return notifications.filter(n => !n.read).length;
-  }, [notifications]);
+  const totalUnreadMessages = useMemo(
+      () => conversations.reduce((acc, c) => acc + c.unreadCount, 0),
+      [conversations]
+  );
+  const unreadNotifications = useMemo(
+      () => notifications.filter(n => !n.read).length,
+      [notifications]
+  );
 
-  // Фильтрация квартир
+  const favoriteProperties = useMemo(
+      () => properties.filter(p => favoriteIds.has(p.id)),
+      [properties, favoriteIds]
+  );
+
+  const userProperties = useMemo(
+      () => currentUser ? properties.filter(p => p.ownerId === currentUser.id) : [],
+      [properties, currentUser]
+  );
+
   const filteredProperties = useMemo(() => {
-    return properties.filter((property) => {
-      if (searchQuery && !property.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !property.description.toLowerCase().includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-
-      if (searchLocation && !property.location.toLowerCase().includes(searchLocation.toLowerCase())) {
-        return false;
-      }
-
-      if (property.price < filters.priceRange[0] || property.price > filters.priceRange[1]) {
-        return false;
-      }
-
-      if (filters.rooms && property.rooms !== filters.rooms) {
-        return false;
-      }
-
-      if (filters.rating && property.rating < filters.rating) {
-        return false;
-      }
-
-      if (filters.location && !property.location.toLowerCase().includes(filters.location.toLowerCase())) {
-        return false;
-      }
-
-      if (filters.type && property.type !== filters.type) {
-        return false;
-      }
-
-      if (filters.petFriendly && !property.petFriendly) {
-        return false;
-      }
-
-      if (filters.genderPreference && filters.genderPreference !== '' && property.genderPreference !== 'any' && property.genderPreference !== filters.genderPreference) {
-        return false;
-      }
-
+    return properties.filter(p => {
+      if (filters.rating && p.rating < filters.rating) return false;
+      if (filters.genderPreference && filters.genderPreference !== 'any' && p.genderPreference !== filters.genderPreference) return false;
       return true;
     });
-  }, [properties, searchQuery, searchLocation, filters]);
+  }, [properties, filters]);
 
-  // Квартиры пользователя
-  const userProperties = useMemo(() => {
-    return properties.filter((property) => property.ownerId === CURRENT_USER_ID);
-  }, [properties]);
-
-  // Избранное
-  const favoriteProperties = useMemo(() => {
-    return properties.filter((property) => favoriteIds.has(property.id));
-  }, [properties, favoriteIds]);
-
-  const toggleFavorite = (id: string) => {
-    setFavoriteIds((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
+  const toggleFavorite = async (propertyId: string) => {
+    if (!isLoggedIn) { setIsLoginModalOpen(true); return; }
+    try {
+      if (favoriteIds.has(propertyId)) {
+        await favoritesApi.remove(propertyId);
+        setFavoriteIds(prev => { const s = new Set(prev); s.delete(propertyId); return s; });
       } else {
-        newSet.add(id);
+        await favoritesApi.add(propertyId);
+        setFavoriteIds(prev => new Set([...prev, propertyId]));
       }
-      return newSet;
-    });
+    } catch (err) {
+      console.error('Ошибка избранного:', err);
+    }
   };
 
-  const handleSearch = (query: string, location: string) => {
-    setSearchQuery(query);
-    setSearchLocation(location);
-  };
-
-  const handleApplyFilters = (newFilters: Filters) => {
-    setFilters(newFilters);
-  };
-
-  const handleViewDetails = (property: Property) => {
-    setSelectedProperty(property);
+  const handleViewDetails = async (property: Property) => {
+    try {
+      const full = await listingsApi.getById(property.id);
+      setSelectedProperty(apiListingToProperty(full));
+    } catch {
+      setSelectedProperty(property);
+    }
   };
 
   const handleOpenChat = (property: Property) => {
@@ -476,13 +245,64 @@ export default function App() {
     setIsChatOpen(true);
   };
 
-  const handleAddProperty = (property: Property) => {
-    const newProperty = {
-      ...property,
-      ownerId: CURRENT_USER_ID,
-    };
-    setProperties([...properties, newProperty]);
-    setIsListPropertyOpen(false);
+  const handleAddProperty = async (formData: any) => {
+    if (!currentUser) { setIsLoginModalOpen(true); return; }
+    try {
+      const { listing } = await listingsApi.create({
+        title:            formData.title,
+        description:      formData.description,
+        price:            Number(formData.price),
+        city:             formData.city || 'Бишкек',
+        district:         formData.district,
+        address:          formData.location,
+        rooms:            Number(formData.rooms) || 1,
+        type:             formData.type,
+        listing_type:     formData.type,
+        petFriendly:      formData.petFriendly,
+        genderPreference: formData.genderPreference,
+        amenities:        formData.amenities,
+        wifi:             formData.amenities?.includes('Wi-Fi'),
+        parking:          formData.amenities?.includes('Парковка'),
+        image_urls:       formData.gallery || [],
+      });
+      setProperties(prev => [apiListingToProperty(listing), ...prev]);
+      setIsListPropertyOpen(false);
+    } catch (err: any) {
+      alert(err.message || 'Ошибка создания объявления');
+    }
+  };
+
+  const handleUpdateProperty = async (formData: any) => {
+    if (!editingProperty) return;
+    try {
+      const { listing } = await listingsApi.update(editingProperty.id, {
+        title:            formData.title,
+        description:      formData.description,
+        price:            Number(formData.price),
+        address:          formData.location,
+        rooms:            Number(formData.rooms),
+        type:             formData.type,
+        petFriendly:      formData.petFriendly,
+        genderPreference: formData.genderPreference,
+        amenities:        formData.amenities,
+        wifi:             formData.amenities?.includes('Wi-Fi'),
+        parking:          formData.amenities?.includes('Парковка'),
+      });
+      setProperties(prev => prev.map(p => p.id === listing.id ? apiListingToProperty(listing) : p));
+      setEditingProperty(null);
+      setIsListPropertyOpen(false);
+    } catch (err: any) {
+      alert(err.message || 'Ошибка обновления');
+    }
+  };
+
+  const handleDeleteProperty = async (propertyId: string) => {
+    try {
+      await listingsApi.delete(propertyId);
+      setProperties(prev => prev.filter(p => p.id !== propertyId));
+    } catch (err: any) {
+      alert(err.message || 'Ошибка удаления');
+    }
   };
 
   const handleEditProperty = (property: Property) => {
@@ -490,338 +310,260 @@ export default function App() {
     setIsListPropertyOpen(true);
   };
 
-  const handleUpdateProperty = (updatedProperty: Property) => {
-    setProperties(properties.map(p => p.id === updatedProperty.id ? { ...updatedProperty, ownerId: CURRENT_USER_ID } : p));
-    setEditingProperty(null);
-    setIsListPropertyOpen(false);
-  };
-
-  const handleDeleteProperty = (propertyId: string) => {
-    if (window.confirm('Вы уверены, что хотите удалить это объявление?')) {
-      setProperties(properties.filter(p => p.id !== propertyId));
+  const handleSendChatMessage = async (conversationId: string, text: string) => {
+    if (!currentUser) return;
+    const parts = conversationId.replace('conv_', '').split('_');
+    const otherId = parts.find(id => id !== currentUser.id) || parts[1];
+    try {
+      const { data } = await messagesApi.send({ receiver_id: otherId, content: text });
+      const msg = apiMessageToChatMessage(data);
+      setChatMessages(prev => [...prev, msg]);
+      setConversations(prev => prev.map(c =>
+          c.id === conversationId ? { ...c, lastMessage: msg } : c
+      ));
+    } catch (err) {
+      console.error('Ошибка отправки сообщения:', err);
     }
   };
 
-  // Обработка сообщения от AI к владельцу
-  const handleAIForwardToOwner = (message: string, propertyId: string, ownerId: string) => {
-    const conversationId = `conv-${CURRENT_USER_ID}-${ownerId}-${propertyId}`;
-
-    // Проверяем, есть ли уже диалог
-    let conversation = conversations.find(c => c.id === conversationId);
-
-    if (!conversation) {
-      // Создаем новый диалог
-      conversation = {
-        id: conversationId,
-        participants: [CURRENT_USER_ID, ownerId],
-        propertyId: propertyId,
-        unreadCount: 0,
-      };
-      setConversations([...conversations, conversation]);
-    }
-
-    // Добавляем сообщение
-    const newMessage: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      conversationId: conversationId,
-      senderId: CURRENT_USER_ID,
-      receiverId: ownerId,
-      text: message,
-      timestamp: new Date().toISOString(),
-      read: false,
-      propertyId: propertyId,
-    };
-
-    setChatMessages([...chatMessages, newMessage]);
-
-    // Добавляем уведомление владельцу
-    const notification: Notification = {
-      id: `notif-${Date.now()}`,
-      title: 'Новое сообщение',
-      message: `Вам отправлено сообщение о квартире "${properties.find(p => p.id === propertyId)?.title}"`,
-      timestamp: 'Только что',
-      read: false,
-      type: 'message',
-      targetType: 'chat',
-      targetId: conversationId,
-      propertyId: propertyId,
-      userId: CURRENT_USER_ID,
-    };
-
-    setNotifications([notification, ...notifications]);
+  const handleMarkNotificationAsRead = async (notificationId: string) => {
+    try {
+      await notificationsApi.markRead(notificationId);
+      setNotifications(prev => prev.map(n =>
+          n.id === notificationId ? { ...n, read: true } : n
+      ));
+    } catch (err) { console.error(err); }
   };
 
-  // Отправка сообщения в чате
-  const handleSendChatMessage = (conversationId: string, text: string) => {
-    const conversation = conversations.find(c => c.id === conversationId);
-    if (!conversation) return;
-
-    const receiverId = conversation.participants.find(id => id !== CURRENT_USER_ID);
-    if (!receiverId) return;
-
-    const newMessage: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      conversationId,
-      senderId: CURRENT_USER_ID,
-      receiverId,
-      text,
-      timestamp: new Date().toISOString(),
-      read: false,
-      propertyId: conversation.propertyId,
-    };
-
-    setChatMessages([...chatMessages, newMessage]);
-
-    // Обновляем lastMessage в диалоге
-    setConversations(conversations.map(c =>
-      c.id === conversationId ? { ...c, lastMessage: newMessage } : c
-    ));
+  const handleMarkAllNotificationsAsRead = async () => {
+    try {
+      await notificationsApi.markAllRead();
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    } catch (err) { console.error(err); }
   };
 
-  // Обработка клика по уведомлению
   const handleNotificationClick = (notification: Notification) => {
-    // Отмечаем как прочитанное
-    setNotifications(notifications.map(n =>
-      n.id === notification.id ? { ...n, read: true } : n
-    ));
-
-    // Переходим к нужному разделу
-    switch (notification.targetType) {
-      case 'chat':
-        setCurrentView('messages');
-        break;
-      case 'property':
-        const property = properties.find(p => p.id === notification.propertyId);
-        if (property) {
-          setSelectedProperty(property);
-        }
-        break;
-      case 'profile':
-        setCurrentView('profile');
-        break;
-      case 'review':
-        setCurrentView('profile');
-        break;
+    handleMarkNotificationAsRead(notification.id);
+    if (notification.targetType === 'chat') setCurrentView('messages');
+    if (notification.targetType === 'property') {
+      const prop = properties.find(p => p.id === notification.propertyId);
+      if (prop) handleViewDetails(prop);
     }
   };
 
-  // Отметить уведомление как прочитанное
-  const handleMarkNotificationAsRead = (notificationId: string) => {
-    setNotifications(notifications.map(n =>
-      n.id === notificationId ? { ...n, read: true } : n
-    ));
-  };
-
-  // Отметить все уведомления как прочитанные
-  const handleMarkAllNotificationsAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
-  };
-
-  // Обработка входа
-  const handleLogin = (email: string, password: string) => {
-    // В реальном приложении здесь будет запрос к API
-    const user: CurrentUser = {
-      id: CURRENT_USER_ID,
-      name: 'Текущий пользователь',
-      email: email,
-      phone: '+996 XXX XXX XXX',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
-      rating: 4.8,
-      verified: true,
-    };
-    setCurrentUser(user);
-    setIsLoggedIn(true);
-    setIsLoginModalOpen(false);
-    setCurrentView('profile');
-  };
-
-  // Обработка регистрации
-  const handleRegister = (userData: { name: string; email: string; password: string; phone: string }) => {
-    // В реальном приложении здесь будет запрос к API
-    const user: CurrentUser = {
-      id: CURRENT_USER_ID,
-      name: userData.name,
-      email: userData.email,
-      phone: userData.phone,
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
-      rating: 0,
-      verified: false,
-    };
-    setCurrentUser(user);
-    setIsLoggedIn(true);
-    setIsLoginModalOpen(false);
-    setCurrentView('profile');
-  };
-
-  // Обработка клика на профиль
-  const handleProfileClick = () => {
-    if (!isLoggedIn) {
-      setIsLoginModalOpen(true);
-    } else {
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      const { user } = await authApi.login(email, password);
+      setCurrentUser(apiUserToCurrentUser(user));
+      setIsLoggedIn(true);
+      setIsLoginModalOpen(false);
       setCurrentView('profile');
+      const [{ ids }, { notifications: ns }, { conversations: cs }] = await Promise.all([
+        favoritesApi.getIds(),
+        notificationsApi.getAll(),
+        messagesApi.getConversations(),
+      ]);
+      setFavoriteIds(new Set(ids));
+      setNotifications(ns.map(apiNotificationToNotification));
+      setConversations(cs.map(apiConversationToConversation));
+    } catch (err: any) {
+      alert(err.message || 'Ошибка входа');
     }
+  };
+
+  const handleRegister = async (userData: { name: string; email: string; password: string; phone: string }) => {
+    try {
+      const { user } = await authApi.register(userData);
+      setCurrentUser(apiUserToCurrentUser(user));
+      setIsLoggedIn(true);
+      setIsLoginModalOpen(false);
+      setCurrentView('profile');
+    } catch (err: any) {
+      alert(err.message || 'Ошибка регистрации');
+    }
+  };
+
+  const handleLogout = async () => {
+    try { await authApi.logout(); } catch (_) {}
+    setCurrentUser(null);
+    setIsLoggedIn(false);
+    setFavoriteIds(new Set());
+    setConversations([]);
+    setNotifications([]);
+    setCurrentView('home');
+  };
+
+  const handleProfileClick = () => {
+    if (!isLoggedIn) setIsLoginModalOpen(true);
+    else setCurrentView('profile');
+  };
+
+  const handleSearch = (query: string, location: string) => {
+    setSearchQuery(query);
+    setSearchLocation(location);
+    setCurrentView('home');
   };
 
   const renderContent = () => {
     switch (currentView) {
       case 'favorites':
         return (
-          <FavoritesView
-            favorites={favoriteProperties}
-            onToggleFavorite={toggleFavorite}
-            onViewDetails={handleViewDetails}
-            onOpenChat={handleOpenChat}
-          />
+            <FavoritesView
+                favorites={favoriteProperties}
+                onToggleFavorite={toggleFavorite}
+                onViewDetails={handleViewDetails}
+                onOpenChat={handleOpenChat}
+            />
         );
       case 'messages':
         return (
-          <MessagesView
-            conversations={conversations}
-            messages={chatMessages}
-            currentUserId={CURRENT_USER_ID}
-            properties={properties}
-            onSendMessage={handleSendChatMessage}
-          />
+            <MessagesView
+                conversations={conversations}
+                messages={chatMessages}
+                currentUserId={currentUser?.id || ''}
+                properties={properties}
+                onSendMessage={handleSendChatMessage}
+            />
         );
       case 'notifications':
         return (
-          <NotificationsView
-            notifications={notifications}
-            onMarkAsRead={handleMarkNotificationAsRead}
-            onMarkAllAsRead={handleMarkAllNotificationsAsRead}
-            onNotificationClick={handleNotificationClick}
-          />
+            <NotificationsView
+                notifications={notifications}
+                onMarkAsRead={handleMarkNotificationAsRead}
+                onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+                onNotificationClick={handleNotificationClick}
+            />
         );
       case 'profile':
         return isLoggedIn && currentUser ? (
-          <UserProfile
-            userProperties={userProperties}
-            onEditProperty={handleEditProperty}
-            onDeleteProperty={handleDeleteProperty}
-            currentUserId={CURRENT_USER_ID}
-            currentUser={currentUser}
-          />
+            <UserProfile
+                userProperties={userProperties}
+                onEditProperty={handleEditProperty}
+                onDeleteProperty={handleDeleteProperty}
+                currentUserId={currentUser.id}
+                currentUser={currentUser}
+                onLogout={handleLogout}
+            />
         ) : null;
       default:
         return (
-          <>
-            <HeroSection onSearch={handleSearch} onOpenFilters={() => setIsFilterOpen(true)} />
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h2 className="text-3xl font-bold text-gray-900">
-                    {searchQuery || searchLocation ? 'Результаты поиска' : 'Рекомендуемые квартиры'}
+            <>
+              <HeroSection onSearch={handleSearch} />
+              <div className="max-w-7xl mx-auto px-4 py-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {propertiesLoading ? 'Загрузка...' : `${filteredProperties.length} объявлений`}
                   </h2>
-                  <p className="text-gray-600 mt-2">
-                    {filteredProperties.length} {filteredProperties.length === 1 ? 'квартира' : filteredProperties.length < 5 ? 'квартиры' : 'квартир'}
-                  </p>
-                </div>
-              </div>
-
-              {filteredProperties.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-2xl shadow-lg border border-gray-100">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Квартиры не найдены</h3>
-                  <p className="text-gray-600 mb-6">Попробуйте изменить параметры поиска или фильтры</p>
                   <button
-                    onClick={() => {
-                      setSearchQuery('');
-                      setSearchLocation('');
-                      setFilters({ priceRange: [0, 100000] });
-                    }}
-                    className="px-6 py-3 bg-gradient-to-r from-[var(--emerald-950)] to-[var(--forest-green)] text-white rounded-xl hover:shadow-xl transition-all duration-300 font-medium"
+                      onClick={() => setIsFilterOpen(!isFilterOpen)}
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
                   >
-                    Сбросить фильтры
+                    Фильтры
                   </button>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filteredProperties.map((property) => (
-                    <PropertyCard
-                      key={property.id}
-                      property={property}
-                      isFavorite={favoriteIds.has(property.id)}
-                      onToggleFavorite={() => toggleFavorite(property.id)}
-                      onViewDetails={() => handleViewDetails(property)}
-                      onOpenChat={() => handleOpenChat(property)}
+
+                {isFilterOpen && (
+                    <FilterPanel
+                        filters={filters}
+                        onFilterChange={setFilters}
+                        onClose={() => setIsFilterOpen(false)}
                     />
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
+                )}
+
+                {propertiesLoading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {[1,2,3,4,5,6].map(i => (
+                          <div key={i} className="bg-gray-100 rounded-2xl h-80 animate-pulse" />
+                      ))}
+                    </div>
+                ) : filteredProperties.length === 0 ? (
+                    <div className="text-center py-20 text-gray-500">
+                      <p className="text-xl">Объявлений не найдено</p>
+                      <p className="mt-2">Попробуй изменить фильтры или поисковый запрос</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {filteredProperties.map(property => (
+                          <PropertyCard
+                              key={property.id}
+                              property={property}
+                              isFavorite={favoriteIds.has(property.id)}
+                              onToggleFavorite={toggleFavorite}
+                              onViewDetails={handleViewDetails}
+                              onOpenChat={handleOpenChat}
+                          />
+                      ))}
+                    </div>
+                )}
+              </div>
+            </>
         );
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar
-        currentView={currentView}
-        onNavigate={(view) => {
-          if (view === 'profile') {
-            handleProfileClick();
-          } else {
-            setCurrentView(view);
-          }
-        }}
-        notificationCount={unreadNotificationsCount}
-        messageCount={unreadMessagesCount}
-      />
-
-      {renderContent()}
-
-      <button
-        onClick={() => {
-          setEditingProperty(null);
-          setIsListPropertyOpen(true);
-        }}
-        className="fixed bottom-8 right-8 px-6 py-4 bg-gradient-to-r from-[var(--emerald-950)] to-[var(--forest-green)] text-white rounded-2xl shadow-2xl hover:shadow-3xl transition-all duration-300 flex items-center space-x-2 font-medium hover:scale-105 z-40"
-      >
-        <Plus className="w-5 h-5" />
-        <span>Разместить объявление</span>
-      </button>
-
-      <FilterPanel
-        isOpen={isFilterOpen}
-        onClose={() => setIsFilterOpen(false)}
-        filters={filters}
-        onApplyFilters={handleApplyFilters}
-      />
-
-      {selectedProperty && (
-        <PropertyDetailModal
-          property={selectedProperty}
-          onClose={() => setSelectedProperty(null)}
-          onOpenChat={() => {
-            handleOpenChat(selectedProperty);
-            setSelectedProperty(null);
-          }}
+      <div className="min-h-screen bg-gray-50">
+        <Navbar
+            isLoggedIn={isLoggedIn}
+            currentUser={currentUser}
+            onProfileClick={handleProfileClick}
+            onMessagesClick={() => setCurrentView('messages')}
+            onNotificationsClick={() => setCurrentView('notifications')}
+            onFavoritesClick={() => setCurrentView('favorites')}
+            onHomeClick={() => setCurrentView('home')}
+            onLogout={handleLogout}
+            unreadMessages={totalUnreadMessages}
+            unreadNotifications={unreadNotifications}
         />
-      )}
 
-      <AIChatAssistant
-        isOpen={isChatOpen}
-        onClose={() => setIsChatOpen(false)}
-        property={chatProperty || undefined}
-        onSendToOwner={handleAIForwardToOwner}
-      />
+        <main className="pt-16">
+          {renderContent()}
+        </main>
 
-      <ListPropertyForm
-        isOpen={isListPropertyOpen}
-        onClose={() => {
-          setIsListPropertyOpen(false);
-          setEditingProperty(null);
-        }}
-        onSubmit={editingProperty ? handleUpdateProperty : handleAddProperty}
-        editingProperty={editingProperty}
-      />
+        {isLoggedIn && (
+            <button
+                onClick={() => { setEditingProperty(null); setIsListPropertyOpen(true); }}
+                className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-emerald-700 to-green-600 text-white rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              Добавить объявление
+            </button>
+        )}
 
-      <LoginRegisterModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLogin={handleLogin}
-        onRegister={handleRegister}
-      />
-    </div>
+        {selectedProperty && (
+            <PropertyDetailModal
+                property={selectedProperty}
+                isOpen={!!selectedProperty}
+                onClose={() => setSelectedProperty(null)}
+                isFavorite={favoriteIds.has(selectedProperty.id)}
+                onToggleFavorite={toggleFavorite}
+                onOpenChat={handleOpenChat}
+                currentUserId={currentUser?.id}
+            />
+        )}
+
+        {isChatOpen && chatProperty && (
+            <AIChatAssistant
+                property={chatProperty}
+                isOpen={isChatOpen}
+                onClose={() => setIsChatOpen(false)}
+                currentUser={currentUser}
+            />
+        )}
+
+        <ListPropertyForm
+            isOpen={isListPropertyOpen}
+            onClose={() => { setIsListPropertyOpen(false); setEditingProperty(null); }}
+            onSubmit={editingProperty ? handleUpdateProperty : handleAddProperty}
+            editingProperty={editingProperty}
+        />
+
+        <LoginRegisterModal
+            isOpen={isLoginModalOpen}
+            onClose={() => setIsLoginModalOpen(false)}
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+        />
+      </div>
   );
 }

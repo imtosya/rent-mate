@@ -1,13 +1,11 @@
 {
   "name": "rentmate-backend",
   "version": "1.0.0",
-  "description": "RentMate Backend API",
   "main": "src/index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "backend": "node backend/src/index.js",
-    "backend:dev": "nodemon backend/src/index.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "init-db": "node src/config/initDb.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
