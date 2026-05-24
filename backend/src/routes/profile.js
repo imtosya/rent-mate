@@ -4,7 +4,7 @@ const auth   = require('../middleware/auth');
 const { formatUser } = require('./auth');
 const { formatListing } = require('./listings');
 
-// GET /api/profile  — профиль текущего пользователя + его объявления + отзывы им оставленные
+
 router.get('/', auth, async (req, res) => {
     try {
         const [[user]] = await db.query('SELECT * FROM users WHERE id = ?', [req.session.userId]);
@@ -65,7 +65,7 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
-// GET /api/profile/:userId  — публичный профиль другого пользователя
+
 router.get('/:userId', async (req, res) => {
     try {
         const [[user]] = await db.query(
@@ -91,7 +91,7 @@ router.get('/:userId', async (req, res) => {
             ORDER BY l.created_at DESC
         `, [req.params.userId]);
 
-        // Формируем user в формате фронтенда без email и phone (приватные данные)
+
         res.json({
             user: {
                 id:         String(user.id),

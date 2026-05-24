@@ -288,3 +288,18 @@ export const profileApi = {
     getById: (userId: string) =>
         request<{ user: ApiUser; listings: ApiListing[] }>(`/api/profile/${userId}`),
 };
+
+export const uploadApi = {
+    uploadImage: async (file: File): Promise<string> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/upload', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Ошибка загрузки');
+        return data.url;
+    }
+};

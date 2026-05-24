@@ -27,6 +27,7 @@ export interface User {
   verified: boolean;
   bio?: string;
   joinDate?: string;
+  phone?: string;
 }
 
 export interface Review {

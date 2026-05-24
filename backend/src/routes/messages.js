@@ -2,12 +2,12 @@ const router = require('express').Router();
 const db     = require('../config/db');
 const auth   = require('../middleware/auth');
 
-// GET /api/messages/conversations  — список диалогов
+
 router.get('/conversations', auth, async (req, res) => {
     try {
         const me = req.session.userId;
 
-        // Берём последнее сообщение из каждого диалога
+
         const [rows] = await db.query(`
             SELECT
                 m.id, m.content, m.created_at, m.is_read, m.sender_id, m.receiver_id, m.listing_id,
@@ -29,7 +29,7 @@ router.get('/conversations', auth, async (req, res) => {
             ORDER BY m.created_at DESC
         `, [me, me, me, me, me, me]);
 
-        // Форматируем в Conversation фронтенда
+
         const conversations = rows.map(row => ({
             id:           `conv_${Math.min(me, row.other_id)}_${Math.max(me, row.other_id)}`,
             participants: [String(me), String(row.other_id)],
@@ -60,7 +60,7 @@ router.get('/conversations', auth, async (req, res) => {
     }
 });
 
-// GET /api/messages/:userId  — переписка с конкретным пользователем
+
 router.get('/:userId', auth, async (req, res) => {
     try {
         const me    = req.session.userId;
@@ -77,7 +77,7 @@ router.get('/:userId', auth, async (req, res) => {
             ORDER BY m.created_at ASC
         `, [me, other, other, me]);
 
-        // Помечаем как прочитанные входящие
+
         await db.query(
             'UPDATE messages SET is_read = TRUE WHERE sender_id = ? AND receiver_id = ? AND is_read = FALSE',
             [other, me]
@@ -106,7 +106,7 @@ router.get('/:userId', auth, async (req, res) => {
     }
 });
 
-// POST /api/messages  — отправить сообщение
+
 router.post('/', auth, async (req, res) => {
     try {
         const { receiver_id, content, listing_id, is_escalated = false } = req.body;

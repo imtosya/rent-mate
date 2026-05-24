@@ -2,7 +2,7 @@ const router = require('express').Router();
 const db     = require('../config/db');
 const auth   = require('../middleware/auth');
 
-// POST /api/reviews
+
 router.post('/', auth, async (req, res) => {
     try {
         const { listing_id, rating, comment } = req.body;
@@ -23,7 +23,7 @@ router.post('/', auth, async (req, res) => {
                 ON DUPLICATE KEY UPDATE rating = VALUES(rating), comment = VALUES(comment)
         `, [listing_id, req.session.userId, rating, comment || null]);
 
-        // Уведомить владельца
+
         await db.query(
             'INSERT INTO notifications (user_id, type, title, body, link) VALUES (?, ?, ?, ?, ?)',
             [listing.owner_id, 'new_review',
@@ -39,7 +39,7 @@ router.post('/', auth, async (req, res) => {
     }
 });
 
-// GET /api/reviews/listing/:listingId
+
 router.get('/listing/:listingId', async (req, res) => {
     try {
         const [reviews] = await db.query(`
@@ -70,7 +70,7 @@ router.get('/listing/:listingId', async (req, res) => {
     }
 });
 
-// DELETE /api/reviews/:id
+
 router.delete('/:id', auth, async (req, res) => {
     try {
         const [result] = await db.query(

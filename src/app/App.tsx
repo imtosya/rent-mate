@@ -49,6 +49,7 @@ function apiListingToProperty(l: ApiListing): Property {
       rating:   l.owner.rating,
       verified: l.owner.verified,
       bio:      l.owner.bio,
+      phone:    l.owner.phone,
     },
     ownerId: l.ownerId,
   };
@@ -61,7 +62,8 @@ function apiConversationToConversation(c: ApiConversation): Conversation {
     propertyId:   c.propertyId,
     unreadCount:  c.unreadCount,
     lastMessage:  c.lastMessage ? apiMessageToChatMessage(c.lastMessage) : undefined,
-  };
+    otherUser:    (c as any).otherUser,
+  } as any;
 }
 
 function apiMessageToChatMessage(m: ApiChatMessage): ChatMessage {
@@ -112,6 +114,7 @@ interface CurrentUser {
   avatar: string;
   rating: number;
   verified: boolean;
+  joinDate?: string;
 }
 
 export default function App() {
@@ -129,12 +132,12 @@ export default function App() {
   const [selectedProperty, setSelectedProperty]     = useState<Property | null>(null);
   const [chatProperty, setChatProperty]             = useState<Property | null>(null);
   const [editingProperty, setEditingProperty]       = useState<Property | null>(null);
+  const [messageInitialUserId, setMessageInitialUserId] = useState<string | undefined>(undefined);
 
   const [properties, setProperties]           = useState<Property[]>([]);
   const [propertiesLoading, setPropertiesLoading] = useState(true);
   const [propertiesTotal, setPropertiesTotal] = useState(0);
 
-  const [favorites, setFavorites]   = useState<Property[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [chatMessages, setChatMessages]   = useState<ChatMessage[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -393,11 +396,6 @@ export default function App() {
     setCurrentView('home');
   };
 
-  const handleProfileClick = () => {
-    if (!isLoggedIn) setIsLoginModalOpen(true);
-    else setCurrentView('profile');
-  };
-
   const handleSearch = (query: string, location: string) => {
     setSearchQuery(query);
     setSearchLocation(location);
@@ -423,6 +421,7 @@ export default function App() {
                 currentUserId={currentUser?.id || ''}
                 properties={properties}
                 onSendMessage={handleSendChatMessage}
+                initialUserId={messageInitialUserId}
             />
         );
       case 'notifications':
@@ -443,12 +442,16 @@ export default function App() {
                 currentUserId={currentUser.id}
                 currentUser={currentUser}
                 onLogout={handleLogout}
+                onUpdateUser={(updatedUser) => setCurrentUser(updatedUser)}
+                favoritesCount={favoriteIds.size}
+                reviewsCount={0}
+                joinDate={currentUser ? new Date().toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }) : ''}
             />
         ) : null;
       default:
         return (
             <>
-              <HeroSection onSearch={handleSearch} />
+              <HeroSection onSearch={handleSearch} onOpenFilters={() => setIsFilterOpen(true)} />
               <div className="max-w-7xl mx-auto px-4 py-8">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-2xl font-bold text-gray-900">
@@ -462,13 +465,12 @@ export default function App() {
                   </button>
                 </div>
 
-                {isFilterOpen && (
-                    <FilterPanel
-                        filters={filters}
-                        onFilterChange={setFilters}
-                        onClose={() => setIsFilterOpen(false)}
-                    />
-                )}
+                <FilterPanel
+                    isOpen={isFilterOpen}
+                    filters={filters}
+                    onApplyFilters={(newFilters) => { setFilters(newFilters); setIsFilterOpen(false); }}
+                    onClose={() => setIsFilterOpen(false)}
+                />
 
                 {propertiesLoading ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -488,9 +490,9 @@ export default function App() {
                               key={property.id}
                               property={property}
                               isFavorite={favoriteIds.has(property.id)}
-                              onToggleFavorite={toggleFavorite}
-                              onViewDetails={handleViewDetails}
-                              onOpenChat={handleOpenChat}
+                              onToggleFavorite={() => toggleFavorite(property.id)}
+                              onViewDetails={() => handleViewDetails(property)}
+                              onOpenChat={() => handleOpenChat(property)}
                           />
                       ))}
                     </div>
@@ -504,16 +506,22 @@ export default function App() {
   return (
       <div className="min-h-screen bg-gray-50">
         <Navbar
+            currentView={currentView}
+            onNavigate={(view) => {
+              if (view === 'home') setCurrentView('home');
+              if (view === 'favorites') setCurrentView('favorites');
+              if (view === 'messages') { setMessageInitialUserId(undefined); setCurrentView('messages'); }
+              if (view === 'notifications') setCurrentView('notifications');
+              if (view === 'profile') {
+                if (!isLoggedIn) setIsLoginModalOpen(true);
+                else setCurrentView('profile');
+              }
+            }}
+            notificationCount={unreadNotifications}
+            messageCount={totalUnreadMessages}
             isLoggedIn={isLoggedIn}
             currentUser={currentUser}
-            onProfileClick={handleProfileClick}
-            onMessagesClick={() => setCurrentView('messages')}
-            onNotificationsClick={() => setCurrentView('notifications')}
-            onFavoritesClick={() => setCurrentView('favorites')}
-            onHomeClick={() => setCurrentView('home')}
             onLogout={handleLogout}
-            unreadMessages={totalUnreadMessages}
-            unreadNotifications={unreadNotifications}
         />
 
         <main className="pt-16">
@@ -537,7 +545,28 @@ export default function App() {
                 onClose={() => setSelectedProperty(null)}
                 isFavorite={favoriteIds.has(selectedProperty.id)}
                 onToggleFavorite={toggleFavorite}
-                onOpenChat={handleOpenChat}
+                onOpenChat={() => handleOpenChat(selectedProperty)}
+                onOpenMessage={async () => {
+                  if (!currentUser) { setIsLoginModalOpen(true); return; }
+                  if (selectedProperty.ownerId === currentUser.id) {
+                    alert('Это ваше объявление');
+                    return;
+                  }
+                  try {
+                    await messagesApi.send({
+                      receiver_id: selectedProperty.ownerId,
+                      content: `Здравствуйте! Меня интересует ваше объявление "${selectedProperty.title}"`,
+                      listing_id: selectedProperty.id,
+                    });
+                    const { conversations: cs } = await messagesApi.getConversations();
+                    setConversations(cs.map(apiConversationToConversation));
+                    setMessageInitialUserId(selectedProperty.ownerId);
+                    setSelectedProperty(null);
+                    setCurrentView('messages');
+                  } catch (err: any) {
+                    alert(err.message || 'Ошибка');
+                  }
+                }}
                 currentUserId={currentUser?.id}
             />
         )}

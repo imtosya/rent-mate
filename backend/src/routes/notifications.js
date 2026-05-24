@@ -2,10 +2,9 @@ const router = require('express').Router();
 const db     = require('../config/db');
 const auth   = require('../middleware/auth');
 
-// Форматируем уведомление в тип Notification фронтенда
+
 function formatNotification(row) {
-    // type из БД: new_message | new_review | price_drop | escalated | status_change
-    // type на фронтенде: 'message' | 'review' | 'favorite' | 'system' | 'price_drop' | 'new_listing'
+
     const typeMap = {
         new_message:   'message',
         escalated:     'message',
@@ -15,7 +14,7 @@ function formatNotification(row) {
         new_listing:   'new_listing',
     };
 
-    // Извлекаем propertyId и userId из link (например /listings/5 или /messages/3)
+
     let propertyId, userId, targetType, targetId;
     if (row.link) {
         const listingMatch = row.link.match(/\/listings\/(\d+)/);
@@ -48,7 +47,7 @@ function formatNotification(row) {
     };
 }
 
-// GET /api/notifications
+
 router.get('/', auth, async (req, res) => {
     try {
         const [rows] = await db.query(`
@@ -65,7 +64,7 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
-// GET /api/notifications/unread-count
+
 router.get('/unread-count', auth, async (req, res) => {
     try {
         const [[{ count }]] = await db.query(
@@ -78,7 +77,7 @@ router.get('/unread-count', auth, async (req, res) => {
     }
 });
 
-// PUT /api/notifications/read-all
+
 router.put('/read-all', auth, async (req, res) => {
     try {
         await db.query(
@@ -91,7 +90,7 @@ router.put('/read-all', auth, async (req, res) => {
     }
 });
 
-// PUT /api/notifications/read/:id
+
 router.put('/read/:id', auth, async (req, res) => {
     try {
         await db.query(

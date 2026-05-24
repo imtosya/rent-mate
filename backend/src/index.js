@@ -8,6 +8,7 @@ const session    = require('express-session');
 const MySQLStore = require('express-mysql-session')(session);
 const path       = require('path');
 const fs         = require('fs');
+const multer     = require('multer');
 const { getAIResponse } = require('./ai');
 
 const app = express();
@@ -21,23 +22,23 @@ app.use(helmet({
 const allowedOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:5175',
     'http://localhost:3001',
 ];
 app.use(cors({
     origin: (origin, callback) => {
-        // Разрешаем запросы без origin (curl, Postman) и из списка
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
             callback(new Error(`Not allowed by CORS: ${origin}`));
         }
     },
-    credentials: true,   // ВАЖНО: cookie передаётся только при credentials: true
+    credentials: true,
 }));
 
 // ── Парсинг тела запроса ──────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ── Сессии в MySQL ─────────────────────────────────────────────────────────────
 const sessionStore = new MySQLStore({
@@ -86,6 +87,23 @@ const uploadDir = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads'
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 app.use('/uploads', express.static(uploadDir));
 
+// ── Multer для загрузки файлов ────────────────────────────────────────────────
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    }
+});
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) cb(null, true);
+        else cb(new Error('Только изображения'));
+    }
+});
+
 // ── Маршруты ──────────────────────────────────────────────────────────────────
 app.use('/api/auth',          require('./routes/auth'));
 app.use('/api/listings',      require('./routes/listings'));
@@ -95,20 +113,22 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/favorites',     require('./routes/favorites'));
 app.use('/api/profile',       require('./routes/profile'));
 
+// ── Загрузка файлов ───────────────────────────────────────────────────────────
+app.post('/api/upload', upload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+    const url = `http://localhost:3000/uploads/${req.file.filename}`;
+    res.json({ url });
+});
+
 // ── AI Assistant ─────────────────────────────────────────────────────────────
 app.post('/api/ai/respond', async (req, res) => {
     const { message } = req.body;
-
     try {
         const result = await getAIResponse(message);
-
         res.json(result);
     } catch (e) {
         console.error('AI Error:', e);
-
-        res.status(500).json({
-            error: 'AI временно недоступен'
-        });
+        res.status(500).json({ error: 'AI временно недоступен' });
     }
 });
 
@@ -117,7 +137,6 @@ app.get('/health', (req, res) => {
     res.json({
         status:      'ok',
         project:     'RentMate',
-        auth:        'express-session (cookie-based)',
         time:        new Date().toISOString(),
         env:         process.env.NODE_ENV || 'development',
         sessionUser: req.session.userId || null,
@@ -125,39 +144,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-    res.json({
-        message:  '🏠 RentMate API работает!',
-        version:  '1.0.0',
-        endpoints: {
-            'POST /api/auth/register':         'Регистрация',
-            'POST /api/auth/login':            'Вход',
-            'POST /api/auth/logout':           'Выход',
-            'GET  /api/auth/me':               'Текущий пользователь',
-            'PUT  /api/auth/profile':          'Обновить профиль',
-            'GET  /api/listings':              'Список объявлений',
-            'GET  /api/listings/:id':          'Одно объявление',
-            'POST /api/listings':              'Создать объявление',
-            'PUT  /api/listings/:id':          'Редактировать объявление',
-            'DELETE /api/listings/:id':        'Удалить объявление',
-            'POST /api/listings/:id/join':     'Стать жильцом',
-            'DELETE /api/listings/:id/join':   'Покинуть жильцов',
-            'GET  /api/reviews/listing/:id':   'Отзывы объявления',
-            'POST /api/reviews':               'Добавить отзыв',
-            'GET  /api/messages/conversations':'Диалоги',
-            'GET  /api/messages/:userId':      'Переписка',
-            'POST /api/messages':              'Отправить сообщение',
-            'GET  /api/notifications':         'Уведомления',
-            'GET  /api/notifications/unread-count': 'Количество непрочитанных',
-            'PUT  /api/notifications/read-all':'Прочитать все уведомления',
-            'PUT  /api/notifications/read/:id':'Прочитать уведомление',
-            'GET  /api/favorites':             'Избранное',
-            'GET  /api/favorites/ids':         'ID избранных',
-            'POST /api/favorites':             'Добавить в избранное',
-            'DELETE /api/favorites/:id':       'Удалить из избранного',
-            'GET  /api/profile':               'Мой профиль',
-            'GET  /api/profile/:userId':       'Профиль пользователя',
-        }
-    });
+    res.json({ message: '🏠 RentMate API работает!' });
 });
 
 // ── 404 ───────────────────────────────────────────────────────────────────────

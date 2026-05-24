@@ -2,9 +2,9 @@ const router = require('express').Router();
 const db     = require('../config/db');
 const auth   = require('../middleware/auth');
 
-// Преобразует строку из БД в формат Property фронтенда
+
 function formatListing(row) {
-    // image_urls хранится как JSON строка или уже массив
+
     let imageUrls = [];
     try {
         imageUrls = typeof row.image_urls === 'string'
@@ -12,7 +12,7 @@ function formatListing(row) {
             : (row.image_urls || []);
     } catch (_) { imageUrls = []; }
 
-    // Тип объявления → английский для фронтенда
+
     const typeMap = {
         'аренда':     'apartment',
         'подселение': 'room',
@@ -33,7 +33,7 @@ function formatListing(row) {
 
     const firstImage = imageUrls[0] || 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800';
 
-    // Аменити из полей wifi, parking, pet_friendly
+
     const amenities = [];
     if (row.wifi)        amenities.push('Wi-Fi');
     if (row.parking)     amenities.push('Парковка');
@@ -81,7 +81,7 @@ function formatListing(row) {
     };
 }
 
-// GET /api/listings  — список с фильтрами
+
 router.get('/', async (req, res) => {
     try {
         const {
@@ -106,7 +106,7 @@ router.get('/', async (req, res) => {
 
         if (city)     { sql += ' AND l.city LIKE ?';         params.push(`%${city}%`); }
 
-        // type приходит как 'apartment'/'room' — конвертируем обратно в русский
+
         if (type) {
             const typeToRu = { apartment: 'аренда', room: 'подселение', studio: 'аренда' };
             const ruType = typeToRu[type];
@@ -138,7 +138,7 @@ router.get('/', async (req, res) => {
 
         const [rows] = await db.query(sql, params);
 
-        // Подсчёт total с теми же фильтрами (без лимита)
+
         let countSql = `
             SELECT COUNT(DISTINCT l.id) AS total
             FROM listings l
@@ -169,7 +169,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET /api/listings/:id
+
 router.get('/:id', async (req, res) => {
     try {
         const [[listing]] = await db.query(`
@@ -201,7 +201,7 @@ router.get('/:id', async (req, res) => {
             ORDER BY r.created_at DESC
         `, [req.params.id]);
 
-        // Форматируем отзывы в формат Review фронтенда
+
         const formattedReviews = reviews.map(r => ({
             id:      String(r.id),
             rating:  r.rating,
@@ -232,7 +232,7 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// POST /api/listings  — создать объявление
+
 router.post('/', auth, async (req, res) => {
     try {
         const {
@@ -255,18 +255,18 @@ router.post('/', auth, async (req, res) => {
         if (Number(price) <= 0)
             return res.status(400).json({ error: 'Цена должна быть > 0' });
 
-        // Нормализуем тип
-        const typeToRu = { apartment: 'аренда', room: 'подселение', studio: 'аренда', house: 'аренда' };
-        const normalizedType = listing_type || typeToRu[type] || 'аренда';
 
-        // Нормализуем предпочтение пола
+        const typeToRu = { apartment: 'аренда', room: 'подселение', studio: 'аренда', house: 'аренда' };
+        const normalizedType = typeToRu[listing_type] || typeToRu[type] || listing_type || 'аренда';
+
+
         const genderToRu = { any: 'любой', male: 'только мужчины', female: 'только женщины' };
         const normalizedGender = gender_pref || genderToRu[genderPreference] || 'любой';
 
-        // Нормализуем pet_friendly
+
         const isPetFriendly = pet_friendly || petFriendly || false;
 
-        // Нормализуем image_urls
+
         const images = gallery || image_urls || [];
 
         const [result] = await db.query(`
@@ -301,7 +301,7 @@ router.post('/', auth, async (req, res) => {
     }
 });
 
-// PUT /api/listings/:id  — обновить своё объявление
+
 router.put('/:id', auth, async (req, res) => {
     try {
         const [[listing]] = await db.query(
@@ -311,7 +311,7 @@ router.put('/:id', auth, async (req, res) => {
         if (!listing)
             return res.status(404).json({ error: 'Не найдено или не твоё объявление' });
 
-        // Уведомление о снижении цены для тех, кто добавил в избранное
+
         const { price } = req.body;
         if (price && +price < listing.price) {
             const [favUsers] = await db.query(
@@ -328,7 +328,7 @@ router.put('/:id', auth, async (req, res) => {
             }
         }
 
-        // Нормализуем поля если пришли английские варианты
+
         const body = { ...req.body };
         if (body.type && !body.listing_type) {
             const typeToRu = { apartment: 'аренда', room: 'подселение', studio: 'аренда', house: 'аренда' };
@@ -382,7 +382,7 @@ router.put('/:id', auth, async (req, res) => {
     }
 });
 
-// DELETE /api/listings/:id
+
 router.delete('/:id', auth, async (req, res) => {
     try {
         const [result] = await db.query(
@@ -398,7 +398,7 @@ router.delete('/:id', auth, async (req, res) => {
     }
 });
 
-// POST /api/listings/:id/join  — стать жильцом
+
 router.post('/:id/join', auth, async (req, res) => {
     try {
         await db.query(
@@ -411,7 +411,7 @@ router.post('/:id/join', auth, async (req, res) => {
     }
 });
 
-// DELETE /api/listings/:id/join  — покинуть жильцов
+
 router.delete('/:id/join', auth, async (req, res) => {
     try {
         await db.query(

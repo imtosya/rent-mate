@@ -131,7 +131,7 @@ async function init() {
 
     try {
         await conn.query(sql);
-        console.log('✅ Таблицы созданы: users, listings, roommates, reviews, messages, notifications, favorites');
+        console.log(' Таблицы созданы: users, listings, roommates, reviews, messages, notifications, favorites');
 
         // Создаём тестовых пользователей с реальными хешами паролей
         const hash = await bcrypt.hash('test123', 10);
@@ -167,12 +167,12 @@ async function init() {
 
         await conn.query(`INSERT IGNORE INTO roommates (listing_id, user_id) VALUES (2, 1)`);
 
-        console.log('\n✅ Тестовые данные добавлены:');
+        console.log('\n Тестовые данные добавлены:');
         console.log('   3 пользователя (пароль для всех: test123)');
         console.log('   3 объявления');
-        console.log('\n🚀 База готова! Запускай: npm run dev\n');
+        console.log('\n База готова! Запускай: npm run dev\n');
     } catch (err) {
-        console.error('❌ Ошибка:', err.message);
+        console.error(' Ошибка:', err.message);
         process.exit(1);
     } finally {
         await conn.end();

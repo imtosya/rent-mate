@@ -1,6 +1,7 @@
 import { X, Upload, Plus } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Property } from '../types';
+import { uploadApi } from '../../api/api';
 
 interface ListPropertyFormProps {
   isOpen: boolean;
@@ -24,6 +25,8 @@ export function ListPropertyForm({ isOpen, onClose, onSubmit, editingProperty }:
   });
 
   const [newAmenity, setNewAmenity] = useState('');
+  const [gallery, setGallery] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   // Загрузка данных при редактировании
   useEffect(() => {
@@ -330,25 +333,60 @@ export function ListPropertyForm({ isOpen, onClose, onSubmit, editingProperty }:
 
               <div>
                 <label className="block text-sm font-semibold text-gray-900 mb-2">Фотографии</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-[var(--primary)] transition-colors cursor-pointer">
-                  <Upload className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                  <p className="text-gray-600 mb-1">Нажмите для загрузки фото</p>
+                <label
+                    className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-emerald-700 transition-colors cursor-pointer block">
+                  <Upload className="w-12 h-12 mx-auto mb-3 text-gray-400"/>
+                  <p className="text-gray-600 mb-1">{uploading ? 'Загрузка...' : 'Нажмите для загрузки фото'}</p>
                   <p className="text-sm text-gray-400">PNG, JPG до 10MB</p>
-                </div>
+                  <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || []);
+                        if (!files.length) return;
+                        setUploading(true);
+                        try {
+                          const urls = await Promise.all(files.map(f => uploadApi.uploadImage(f)));
+                          setGallery(prev => [...prev, ...urls]);
+                        } catch (err: any) {
+                          alert(err.message || 'Ошибка загрузки');
+                        } finally {
+                          setUploading(false);
+                        }
+                      }}
+                  />
+                </label>
+                {gallery.length > 0 && (
+                    <div className="flex gap-2 mt-3 flex-wrap">
+                      {gallery.map((url, i) => (
+                          <div key={i} className="relative">
+                            <img src={url} className="w-20 h-20 object-cover rounded-xl"/>
+                            <button
+                                type="button"
+                                onClick={() => setGallery(prev => prev.filter((_, idx) => idx !== i))}
+                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
+                            >×
+                            </button>
+                          </div>
+                      ))}
+                    </div>
+                )}
               </div>
             </div>
 
             <div className="sticky bottom-0 bg-white border-t border-gray-200 p-6 flex space-x-3">
               <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-300 font-medium"
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-300 font-medium"
               >
                 Отмена
               </button>
               <button
-                type="submit"
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--emerald-950)] to-[var(--forest-green)] text-white rounded-xl hover:shadow-xl transition-all duration-300 font-medium"
+                  type="submit"
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--emerald-950)] to-[var(--forest-green)] text-white rounded-xl hover:shadow-xl transition-all duration-300 font-medium"
               >
                 {editingProperty ? 'Сохранить изменения' : 'Разместить объявление'}
               </button>
