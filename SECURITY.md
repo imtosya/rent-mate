@@ -1,7 +1,7 @@
 # Безопасность RentMate
 
 **Проект:** RentMate — сайт аренды жилья  
-**Инженер:** Календерова Айтурган   
+**Инженер:** Календерова Айтурган
 **Роль:** DevSecOps Engineer  
 
 ---
@@ -15,7 +15,7 @@
 - Пароли никогда не возвращаются в ответах API (функция safeUser)
 
 ### Защита от атак
-- Rate limiting: 300 запросов / 15 мин на всё API
+- Rate limiting: 500 запросов / 15 мин на всё API
 - Rate limiting: 20 попыток / 15 мин на /login и /register (защита от брутфорса)
 - Защита от SQL-инъекций через параметризованные запросы (?)
 - CORS — разрешены только доверенные домены
@@ -31,20 +31,16 @@
 
 ## Security Audit — npm audit
 
-**Дата:** 21 мая 2026  
+**Дата:** 25 мая 2026  
 **Инструмент:** npm audit  
 
 ### Обнаружено:
 - Пакет: vite <=6.4.1
 - Severity: HIGH
-- Уязвимости:
-  - Path Traversal в Optimized Deps
-  - server.fs settings не применялись к HTML файлам
-  - Обход защиты через backslash на Windows
-  - Чтение файлов через WebSocket
+- Уязвимости: Path Traversal, обход server.fs, чтение файлов через WebSocket
 
 ### Действия:
-- Выполнена команда: `npm audit fix --force`
+- Выполнена команда: npm audit fix --force
 - Установлена безопасная версия: vite@6.4.2
 
 ### Результат после исправления:
@@ -54,8 +50,14 @@ found 0 vulnerabilities ✅
 
 ## Деплой и инфраструктура
 
+- Фронтенд: https://wholesome-eagerness-production-dc88.up.railway.app
+- Бэкенд: https://rent-mate-production.up.railway.app
+- База данных MySQL размещена на Railway
+- Все секреты хранятся в Railway Variables, не в коде
+- Auto-deploy настроен через GitHub — каждый push в main обновляет сайт автоматически
+
 - Проект задеплоен на Railway
-- Бэкенд: https://[твой-url].railway.app
-- Фронтенд: https://[твой-url].railway.app
+- Бэкенд: https://rent-mate-production.up.railway.app/
+- Фронтенд: https://wholesome-eagerness-production-dc88.up.railway.app/
 - База данных MySQL размещена на Railway
 - Auto-deploy настроен через GitHub (каждый push в main)
