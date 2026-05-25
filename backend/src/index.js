@@ -80,7 +80,7 @@ app.use(session({
 }));
 
 // ── Rate limiting ──────────────────────────────────────────────────────────────
-app.use('/api/', rateLimit({
+app.use(/^\/api\/(?!upload)/, rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 500,
     message: { error: 'Слишком много запросов. Попробуй через 15 минут.' }
