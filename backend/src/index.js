@@ -9,6 +9,13 @@ const MySQLStore = require('express-mysql-session')(session);
 const path       = require('path');
 const fs         = require('fs');
 const multer     = require('multer');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key:    process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 const { getAIResponse } = require('./ai');
 
 const app = express();
@@ -90,12 +97,12 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 app.use('/uploads', express.static(uploadDir));
 
 // ── Multer для загрузки файлов ────────────────────────────────────────────────
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-    }
+const storage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder: 'rentmate',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    },
 });
 const upload = multer({
     storage,
@@ -118,7 +125,7 @@ app.use('/api/profile',       require('./routes/profile'));
 // ── Загрузка файлов ───────────────────────────────────────────────────────────
 app.post('/api/upload', upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-    const url = `${process.env.BACKEND_URL || 'http://localhost:3000'}/uploads/${req.file.filename}`;
+    const url = req.file.path;
     res.json({ url });
 });
 
