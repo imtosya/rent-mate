@@ -66,6 +66,7 @@ app.use(session({
         httpOnly: true,
         secure:   process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        domain:   process.env.SESSION_DOMAIN || undefined,
         maxAge:   maxAgeDays * 24 * 60 * 60 * 1000,
     },
 }));
@@ -116,7 +117,7 @@ app.use('/api/profile',       require('./routes/profile'));
 // ── Загрузка файлов ───────────────────────────────────────────────────────────
 app.post('/api/upload', upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-    const url = `http://localhost:3000/uploads/${req.file.filename}`;
+    const url = `${process.env.BACKEND_URL || 'http://localhost:3000'}/uploads/${req.file.filename}`;
     res.json({ url });
 });
 
