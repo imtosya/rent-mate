@@ -12,6 +12,7 @@ const multer     = require('multer');
 const { getAIResponse } = require('./ai');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // ── Безопасность ─────────────────────────────────────────────────────────────
 app.use(helmet({
