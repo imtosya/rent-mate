@@ -6,3 +6,6 @@ cmds = ["npm run build"]
 
 [start]
 cmd = "npx serve -s dist -l ${PORT:-8080}"
+
+[variables]
+NPM_CONFIG_LEGACY_PEER_DEPS = "true"
